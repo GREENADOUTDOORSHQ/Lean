@@ -68,6 +68,7 @@ namespace QuantConnect.Tests.Common.Securities
             historyProvider.Initialize(
                 new HistoryProviderInitializeParameters(
                     null,
+                    null,
                     new DefaultDataProvider(),
                     new SingleEntryDataCacheProvider(new DefaultDataProvider()),
                     new LocalDiskMapFileProvider(),
@@ -81,16 +82,16 @@ namespace QuantConnect.Tests.Common.Securities
             _tradeBarSecurity = new Security(
                 SecurityExchangeHours.AlwaysOpen(DateTimeZone.Utc),
                 _tradeBarConfig,
-                new Cash(CashBook.AccountCurrency, 0, 1m),
-                SymbolProperties.GetDefault(CashBook.AccountCurrency),
+                new Cash(Currencies.USD, 0, 1m),
+                SymbolProperties.GetDefault(Currencies.USD),
                 ErrorCurrencyConverter.Instance
             );
 
             _quoteBarSecurity = new Security(
                 SecurityExchangeHours.AlwaysOpen(DateTimeZone.Utc),
                 _quoteBarConfig,
-                new Cash(CashBook.AccountCurrency, 0, 1m),
-                SymbolProperties.GetDefault(CashBook.AccountCurrency),
+                new Cash(Currencies.USD, 0, 1m),
+                SymbolProperties.GetDefault(Currencies.USD),
                 ErrorCurrencyConverter.Instance
             );
 

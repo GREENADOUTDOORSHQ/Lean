@@ -22,13 +22,13 @@ using NodaTime;
 using NUnit.Framework;
 using QuantConnect.Data;
 using QuantConnect.Data.Market;
+using QuantConnect.Data.UniverseSelection;
 using QuantConnect.Lean.Engine.DataFeeds;
 using QuantConnect.Lean.Engine.DataFeeds.Enumerators;
 using QuantConnect.Securities;
 using QuantConnect.Securities.Equity;
 using QuantConnect.Securities.Future;
 using QuantConnect.Securities.Option;
-using QuantConnect.Tests.Common.Securities;
 using QuantConnect.Util;
 
 namespace QuantConnect.Tests.Engine.DataFeeds
@@ -47,14 +47,15 @@ namespace QuantConnect.Tests.Engine.DataFeeds
             var security = new Equity(
                 Symbols.SPY,
                 SecurityExchangeHours.AlwaysOpen(DateTimeZone.Utc),
-                new Cash("USD", 0, 1),
-                SymbolProperties.GetDefault("USD"),
+                new Cash(Currencies.USD, 0, 1),
+                SymbolProperties.GetDefault(Currencies.USD),
                 ErrorCurrencyConverter.Instance
             );
             var timeZoneOffsetProvider = new TimeZoneOffsetProvider(DateTimeZone.Utc, start, end);
             var enumerator = new EnqueueableEnumerator<BaseData>();
             var subscriptionDataEnumerator = SubscriptionData.Enumerator(config, security, timeZoneOffsetProvider, enumerator);
-            var subscription = new Subscription(null, security, config, subscriptionDataEnumerator, timeZoneOffsetProvider, start, end, false);
+            var subscriptionRequest = new SubscriptionRequest(false, null, security, config, start, end);
+            var subscription = new Subscription(subscriptionRequest, subscriptionDataEnumerator, timeZoneOffsetProvider);
 
             var addTask = new TaskFactory().StartNew(() =>
             {
@@ -247,7 +248,7 @@ namespace QuantConnect.Tests.Engine.DataFeeds
             Assert.AreEqual(subscriptionColletion.ToList(), new[] { subscription4, subscription2, subscription3, subscription6, subscription5, subscription });
 
 
-            Assert.AreEqual(subscriptionColletion.Select(x => x.Security.Type).ToList(), new[] { SecurityType.Equity, SecurityType.Equity, SecurityType.Option,
+            Assert.AreEqual(subscriptionColletion.Select(x => x.Configuration.SecurityType).ToList(), new[] { SecurityType.Equity, SecurityType.Equity, SecurityType.Option,
                 SecurityType.Option, SecurityType.Option, SecurityType.Future });
         }
 
@@ -269,7 +270,7 @@ namespace QuantConnect.Tests.Engine.DataFeeds
             subscriptionColletion.TryAdd(subscription4);
 
             Assert.AreEqual(subscriptionColletion.ToList(), new[] { subscription4, subscription2, subscription3, subscription });
-            Assert.AreEqual(subscriptionColletion.Select(x => x.Security.Type).ToList(), new[] { SecurityType.Equity, SecurityType.Equity, SecurityType.Option, SecurityType.Future });
+            Assert.AreEqual(subscriptionColletion.Select(x => x.Configuration.SecurityType).ToList(), new[] { SecurityType.Equity, SecurityType.Equity, SecurityType.Option, SecurityType.Future });
         }
 
         [Test]
@@ -292,25 +293,25 @@ namespace QuantConnect.Tests.Engine.DataFeeds
             Assert.AreEqual(subscriptionColletion.ToList(), new[] { subscription4, subscription2, subscription3, subscription6, subscription5, subscription });
 
             subscriptionColletion.TryRemove(subscription2.Configuration, out subscription2);
-            Assert.AreEqual(subscriptionColletion.Select(x => x.Security.Type).ToList(), new[] { SecurityType.Equity, SecurityType.Option,
+            Assert.AreEqual(subscriptionColletion.Select(x => x.Configuration.SecurityType).ToList(), new[] { SecurityType.Equity, SecurityType.Option,
                             SecurityType.Option, SecurityType.Option, SecurityType.Future });
 
             subscriptionColletion.TryRemove(subscription3.Configuration, out subscription3);
-            Assert.AreEqual(subscriptionColletion.Select(x => x.Security.Type).ToList(), new[] { SecurityType.Equity, SecurityType.Option, SecurityType.Option, SecurityType.Future });
+            Assert.AreEqual(subscriptionColletion.Select(x => x.Configuration.SecurityType).ToList(), new[] { SecurityType.Equity, SecurityType.Option, SecurityType.Option, SecurityType.Future });
 
             subscriptionColletion.TryRemove(subscription.Configuration, out subscription);
-            Assert.AreEqual(subscriptionColletion.Select(x => x.Security.Type).ToList(), new[] { SecurityType.Equity, SecurityType.Option, SecurityType.Option });
+            Assert.AreEqual(subscriptionColletion.Select(x => x.Configuration.SecurityType).ToList(), new[] { SecurityType.Equity, SecurityType.Option, SecurityType.Option });
             Assert.AreEqual(subscriptionColletion.ToList(), new[] { subscription4, subscription6, subscription5 });
 
             subscriptionColletion.TryRemove(subscription6.Configuration, out subscription6);
-            Assert.AreEqual(subscriptionColletion.Select(x => x.Security.Type).ToList(), new[] { SecurityType.Equity, SecurityType.Option });
+            Assert.AreEqual(subscriptionColletion.Select(x => x.Configuration.SecurityType).ToList(), new[] { SecurityType.Equity, SecurityType.Option });
             Assert.AreEqual(subscriptionColletion.ToList(), new[] { subscription4, subscription5 });
 
             subscriptionColletion.TryRemove(subscription5.Configuration, out subscription5);
-            Assert.AreEqual(subscriptionColletion.Select(x => x.Security.Type).ToList(), new[] {SecurityType.Equity});
+            Assert.AreEqual(subscriptionColletion.Select(x => x.Configuration.SecurityType).ToList(), new[] {SecurityType.Equity});
 
             subscriptionColletion.TryRemove(subscription4.Configuration, out subscription4);
-            Assert.IsTrue(subscriptionColletion.Select(x => x.Security.Type).ToList().IsNullOrEmpty());
+            Assert.IsTrue(subscriptionColletion.Select(x => x.Configuration.SecurityType).ToList().IsNullOrEmpty());
         }
 
         private Subscription CreateSubscription(Resolution resolution, string symbol = "AAPL", bool isInternalFeed = false,
@@ -326,8 +327,8 @@ namespace QuantConnect.Tests.Engine.DataFeeds
                 security = new Equity(
                     _symbol,
                     SecurityExchangeHours.AlwaysOpen(DateTimeZone.Utc),
-                    new Cash("USD", 0, 1),
-                    SymbolProperties.GetDefault("USD"),
+                    new Cash(Currencies.USD, 0, 1),
+                    SymbolProperties.GetDefault(Currencies.USD),
                     ErrorCurrencyConverter.Instance
                 );
             }
@@ -339,8 +340,8 @@ namespace QuantConnect.Tests.Engine.DataFeeds
                 security = new Option(
                     _symbol,
                     SecurityExchangeHours.AlwaysOpen(DateTimeZone.Utc),
-                    new Cash("USD", 0, 1),
-                    new OptionSymbolProperties(SymbolProperties.GetDefault("USD")),
+                    new Cash(Currencies.USD, 0, 1),
+                    new OptionSymbolProperties(SymbolProperties.GetDefault(Currencies.USD)),
                     ErrorCurrencyConverter.Instance
                 );
             }
@@ -350,8 +351,8 @@ namespace QuantConnect.Tests.Engine.DataFeeds
                 security = new Future(
                     _symbol,
                     SecurityExchangeHours.AlwaysOpen(DateTimeZone.Utc),
-                    new Cash("USD", 0, 1),
-                    SymbolProperties.GetDefault("USD"),
+                    new Cash(Currencies.USD, 0, 1),
+                    SymbolProperties.GetDefault(Currencies.USD),
                     ErrorCurrencyConverter.Instance
                 );
             }
@@ -363,7 +364,8 @@ namespace QuantConnect.Tests.Engine.DataFeeds
             var timeZoneOffsetProvider = new TimeZoneOffsetProvider(DateTimeZone.Utc, start, end);
             var enumerator = new EnqueueableEnumerator<BaseData>();
             var subscriptionDataEnumerator = SubscriptionData.Enumerator(config, security, timeZoneOffsetProvider, enumerator);
-            return new Subscription(null, security, config, subscriptionDataEnumerator, timeZoneOffsetProvider, start, end, false);
+            var subscriptionRequest = new SubscriptionRequest(false, null, security, config, start, end);
+            return new Subscription(subscriptionRequest, subscriptionDataEnumerator, timeZoneOffsetProvider);
         }
     }
 }

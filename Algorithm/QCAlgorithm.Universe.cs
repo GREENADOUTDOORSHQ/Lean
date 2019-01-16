@@ -30,7 +30,7 @@ namespace QuantConnect.Algorithm
         // this removes temporal dependencies from w/in initialize method
         // original motivation: adding equity/options to enforce equity raw data mode
         private readonly object _pendingUniverseAdditionsLock = new object();
-        private readonly Dictionary<Security, UserDefinedUniverse> _pendingUserDefinedUniverseSecurityAdditions = new Dictionary<Security, UserDefinedUniverse>();
+        private readonly List<UserDefinedUniverseAddition> _pendingUserDefinedUniverseSecurityAdditions = new List<UserDefinedUniverseAddition>();
         private readonly List<Universe> _pendingUniverseAdditions = new List<Universe>();
 
         /// <summary>
@@ -68,7 +68,8 @@ namespace QuantConnect.Algorithm
             lock (_pendingUniverseAdditionsLock)
             {
 
-                foreach (var security in Securities.Select(kvp => kvp.Value).Union(_pendingUserDefinedUniverseSecurityAdditions.Keys))
+                foreach (var security in Securities.Select(kvp => kvp.Value).Union(
+                    _pendingUserDefinedUniverseSecurityAdditions.Select(x => x.Security)))
                 {
                     // check for any derivative securities and mark the underlying as raw
                     if (Securities.Any(skvp => skvp.Key.HasUnderlyingSymbol(security.Symbol)))
@@ -77,16 +78,24 @@ namespace QuantConnect.Algorithm
                         ConfigureUnderlyingSecurity(security);
                     }
 
+                    var configs = SubscriptionManager.SubscriptionDataConfigService
+                        .GetSubscriptionDataConfigs(security.Symbol);
                     if (security.Symbol.HasUnderlying)
                     {
                         Security underlyingSecurity;
                         var underlyingSymbol = security.Symbol.Underlying;
+                        var resolution = configs.GetHighestResolution();
 
                         // create the underlying security object if it doesn't already exist
                         if (!Securities.TryGetValue(underlyingSymbol, out underlyingSecurity))
                         {
-                            underlyingSecurity = AddSecurity(underlyingSymbol.SecurityType, underlyingSymbol.Value, security.Resolution,
-                                underlyingSymbol.ID.Market, false, 0, security.IsExtendedMarketHours);
+                            underlyingSecurity = AddSecurity(underlyingSymbol.SecurityType,
+                                underlyingSymbol.Value,
+                                resolution,
+                                underlyingSymbol.ID.Market,
+                                false,
+                                0,
+                                configs.IsExtendedMarketHours());
                         }
 
                         // set data mode raw and default volatility model
@@ -99,14 +108,14 @@ namespace QuantConnect.Algorithm
                                 // lets request the higher resolution
                                 var currentResolutionRequest = requiredHistoryRequests[underlyingSecurity];
                                 if (currentResolutionRequest != Resolution.Minute  // Can not be less than Minute
-                                    && security.Resolution < currentResolutionRequest)
+                                    && resolution < currentResolutionRequest)
                                 {
-                                    requiredHistoryRequests[underlyingSecurity] = (Resolution)Math.Max((int)security.Resolution, (int)Resolution.Minute);
+                                    requiredHistoryRequests[underlyingSecurity] = (Resolution)Math.Max((int)resolution, (int)Resolution.Minute);
                                 }
                             }
                             else
                             {
-                                requiredHistoryRequests.Add(underlyingSecurity, (Resolution)Math.Max((int)security.Resolution, (int)Resolution.Minute));
+                                requiredHistoryRequests.Add(underlyingSecurity, (Resolution)Math.Max((int)resolution, (int)Resolution.Minute));
                             }
                         }
                         // set the underlying security on the derivative -- we do this in two places since it's possible
@@ -137,16 +146,12 @@ namespace QuantConnect.Algorithm
                     });
                 }
 
-                // add securities to their respective user defined universes
-                foreach (var kvp in _pendingUserDefinedUniverseSecurityAdditions)
+                // add subscriptionDataConfig to their respective user defined universes
+                foreach (var userDefinedUniverseAddition in _pendingUserDefinedUniverseSecurityAdditions)
                 {
-                    var security = kvp.Key;
-                    var userDefinedUniverse = kvp.Value;
-                    foreach (var subscriptionDataConfig in security.Subscriptions)
+                    foreach (var subscriptionDataConfig in userDefinedUniverseAddition.SubscriptionDataConfigs)
                     {
-                        // Depending on `security.Subscriptions` (that come from `CreateSecurity` => `SubscriptionManager.Add()`)
-                        // (which will eventually be removed) is an intermediate step.
-                        userDefinedUniverse.Add(subscriptionDataConfig);
+                        userDefinedUniverseAddition.Universe.Add(subscriptionDataConfig);
                     }
                 }
 
@@ -441,19 +446,17 @@ namespace QuantConnect.Algorithm
         /// Adds the security to the user defined universe
         /// </summary>
         /// <param name="security">The security to add</param>
-        /// <param name="resolution">The <see cref="Resolution"/> requested, Tick, Second, Minute, Hour, or Daily</param>
-        /// <param name="leverage">The requested leverage for this security.</param>
-        /// <param name="market">The market of the security</param>
-        /// <param name="isFillDataForward">If true, returns the last available data even if none in that TimeSlice.</param>
-        /// <param name="isExtendedMarketHours">ExtendedMarketHours send in data from 4am - 8pm, not used for FOREX</param>
-        /// <param name="isInternalFeed">Setting this flag to true will prevent the data from being sent into the algorithm's OnData methods</param>
-        private void AddToUserDefinedUniverse(Security security, Resolution resolution, decimal leverage, string market, bool isFillDataForward, bool isExtendedMarketHours, bool isInternalFeed)
+        /// <param name="configurations">The <see cref="SubscriptionDataConfig"/> instances we want to add</param>
+        private void AddToUserDefinedUniverse(
+            Security security,
+            List<SubscriptionDataConfig> configurations)
         {
+            var subscription = configurations.First();
             // if we are adding a non-internal security which already has an internal feed, we remove it first
             Security existingSecurity;
             if (Securities.TryGetValue(security.Symbol, out existingSecurity))
             {
-                if (!isInternalFeed && existingSecurity.IsInternalFeed())
+                if (!subscription.IsInternalFeed && existingSecurity.IsInternalFeed())
                 {
                     var securityUniverse = UniverseManager.Select(x => x.Value).OfType<UserDefinedUniverse>().FirstOrDefault(x => x.Members.ContainsKey(security.Symbol));
                     securityUniverse?.Remove(security.Symbol);
@@ -466,8 +469,7 @@ namespace QuantConnect.Algorithm
 
             // add this security to the user defined universe
             Universe universe;
-            var subscription = security.Subscriptions.First();
-            var universeSymbol = UserDefinedUniverse.CreateSymbol(security.Type, market);
+            var universeSymbol = UserDefinedUniverse.CreateSymbol(security.Type, security.Symbol.ID.Market);
             lock (_pendingUniverseAdditionsLock)
             {
                 if (!UniverseManager.TryGetValue(universeSymbol, out universe))
@@ -487,7 +489,12 @@ namespace QuantConnect.Algorithm
                         }
 
                         universe = new UserDefinedUniverse(uconfig,
-                            new UniverseSettings(resolution, leverage, isFillDataForward, isExtendedMarketHours, TimeSpan.Zero),
+                            new UniverseSettings(
+                                subscription.Resolution,
+                                security.Leverage,
+                                subscription.FillDataForward,
+                                subscription.ExtendedMarketHours,
+                                TimeSpan.Zero),
                             QuantConnect.Time.MaxTimeSpan,
                             new List<Symbol>());
                         _pendingUniverseAdditions.Add(universe);
@@ -500,7 +507,8 @@ namespace QuantConnect.Algorithm
             {
                 lock (_pendingUniverseAdditionsLock)
                 {
-                    _pendingUserDefinedUniverseSecurityAdditions.Add(security, userDefinedUniverse);
+                    _pendingUserDefinedUniverseSecurityAdditions.Add(
+                        new UserDefinedUniverseAddition(userDefinedUniverse, configurations, security));
                 }
             }
             else
@@ -517,16 +525,41 @@ namespace QuantConnect.Algorithm
         private void ConfigureUnderlyingSecurity(Security security)
         {
             // force underlying securities to be raw data mode
-            if (security.DataNormalizationMode != DataNormalizationMode.Raw)
+            var configs = SubscriptionManager.SubscriptionDataConfigService
+                .GetSubscriptionDataConfigs(security.Symbol);
+            if (configs.DataNormalizationMode() != DataNormalizationMode.Raw)
             {
                 Debug($"Warning: The {security.Symbol.Value} equity security was set the raw price normalization mode to work with options.");
-                security.SetDataNormalizationMode(DataNormalizationMode.Raw);
+                configs.SetDataNormalizationMode(DataNormalizationMode.Raw);
+                // For backward compatibility we need to refresh the security DataNormalizationMode Property
+                security.RefreshDataNormalizationModeProperty();
             }
 
             // ensure a volatility model has been set on the underlying
             if (security.VolatilityModel == VolatilityModel.Null)
             {
                 security.VolatilityModel = new StandardDeviationOfReturnsVolatilityModel(periods: 30);
+            }
+        }
+
+        /// <summary>
+        /// Helper class used to store <see cref="UserDefinedUniverse"/> additions.
+        /// They will be consumed at <see cref="OnEndOfTimeStep"/>
+        /// </summary>
+        private class UserDefinedUniverseAddition
+        {
+            public Security Security { get; }
+            public UserDefinedUniverse Universe { get; }
+            public List<SubscriptionDataConfig> SubscriptionDataConfigs { get; }
+
+            public UserDefinedUniverseAddition(
+                UserDefinedUniverse universe,
+                List<SubscriptionDataConfig> subscriptionDataConfigs,
+                Security security)
+            {
+                Universe = universe;
+                SubscriptionDataConfigs = subscriptionDataConfigs;
+                Security = security;
             }
         }
     }

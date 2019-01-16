@@ -68,13 +68,21 @@ namespace QuantConnect.Jupyter
                 var algorithmHandlers = LeanEngineAlgorithmHandlers.FromConfiguration(composer);
                 _dataCacheProvider = new ZipDataCacheProvider(algorithmHandlers.DataProvider);
 
-                var nullDataFeed = new NullDataFeed();
-                SubscriptionManager.SetDataManager(new DataManager(nullDataFeed, new UniverseSelection(nullDataFeed, this), Settings, TimeKeeper));
+                var symbolPropertiesDataBase = SymbolPropertiesDatabase.FromDataFolder();
+                var securityService = new SecurityService(Portfolio.CashBook, MarketHoursDatabase, symbolPropertiesDataBase, this);
+                Securities.SetSecurityService(securityService);
+                SubscriptionManager.SetDataManager(
+                    new DataManager(new NullDataFeed(),
+                        new UniverseSelection(this, securityService),
+                        this,
+                        TimeKeeper,
+                        MarketHoursDatabase));
 
                 var mapFileProvider = algorithmHandlers.MapFileProvider;
                 HistoryProvider = composer.GetExportedValueByTypeName<IHistoryProvider>(Config.Get("history-provider", "SubscriptionDataReaderHistoryProvider"));
                 HistoryProvider.Initialize(
                     new HistoryProviderInitializeParameters(
+                        null,
                         null,
                         algorithmHandlers.DataProvider,
                         _dataCacheProvider,
@@ -167,7 +175,10 @@ namespace QuantConnect.Jupyter
             }
 
             var option = Securities[symbol] as Option;
-            var underlying = AddEquity(symbol.Underlying.Value, option.Resolution);
+            var resolutionToUseForUnderlying = resolution ?? SubscriptionManager.SubscriptionDataConfigService
+                .GetSubscriptionDataConfigs(symbol)
+                .GetHighestResolution();
+            var underlying = AddEquity(symbol.Underlying.Value, resolutionToUseForUnderlying);
 
             var allSymbols = new List<Symbol>();
             for (var date = start; date < end; date = date.AddDays(1))

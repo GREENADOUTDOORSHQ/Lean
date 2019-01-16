@@ -761,7 +761,7 @@ namespace QuantConnect.Tests.Engine.BrokerageTransactionHandlerTests
             var transactionHandler = new TestBrokerageTransactionHandler();
             var broker = new Mock<IBrokerage>();
 
-            broker.Setup(m => m.GetCashBalance()).Returns(new List<Cash> { new Cash("USD", 10, 10) });
+            broker.Setup(m => m.GetCashBalance()).Returns(new List<CashAmount> { new CashAmount(10, Currencies.USD) });
             transactionHandler.Initialize(_algorithm, broker.Object, new BacktestingResultHandler());
             _algorithm.SetLiveMode(true);
 
@@ -789,7 +789,7 @@ namespace QuantConnect.Tests.Engine.BrokerageTransactionHandlerTests
             var transactionHandler = new TestBrokerageTransactionHandler();
             var broker = new Mock<IBrokerage>();
 
-            broker.Setup(m => m.GetCashBalance()).Returns(new List<Cash> { new Cash("USD", 10, 10) });
+            broker.Setup(m => m.GetCashBalance()).Returns(new List<CashAmount> { new CashAmount(10, Currencies.USD) });
             transactionHandler.Initialize(_algorithm, broker.Object, new BacktestingResultHandler());
             _algorithm.SetLiveMode(true);
 
@@ -821,7 +821,7 @@ namespace QuantConnect.Tests.Engine.BrokerageTransactionHandlerTests
             var transactionHandler = new TestBrokerageTransactionHandler();
             var broker = new Mock<IBrokerage>();
 
-            broker.Setup(m => m.GetCashBalance()).Returns(new List<Cash> { new Cash("USD", 10, 10) });
+            broker.Setup(m => m.GetCashBalance()).Returns(new List<CashAmount> { new CashAmount(10, Currencies.USD) });
 
             // This is 2 am New York
             transactionHandler.TestCurrentTimeUtc = new DateTime(1, 1, 1, 7, 0, 0);
@@ -840,6 +840,48 @@ namespace QuantConnect.Tests.Engine.BrokerageTransactionHandlerTests
             Assert.AreEqual(lastSyncDateAfter, lastSyncDateBefore);
 
             broker.Verify(m => m.GetCashBalance(), Times.Exactly(0));
+        }
+
+        [Test]
+        public void DoesNotLoopEndlesslyIfGetCashBalanceAlwaysThrows()
+        {
+            // simulate connect failure
+            var ib = new Mock<IBrokerage>();
+            ib.Setup(m => m.GetCashBalance()).Callback(() => { throw new Exception("Connection error in CashBalance"); });
+            ib.Setup(m => m.IsConnected).Returns(false);
+
+            var brokerage = ib.Object;
+            Assert.IsFalse(brokerage.IsConnected);
+
+            var algorithm = new QCAlgorithm();
+            var marketHoursDatabase = MarketHoursDatabase.FromDataFolder();
+            var symbolPropertiesDataBase = SymbolPropertiesDatabase.FromDataFolder();
+            var securityService = new SecurityService(algorithm.Portfolio.CashBook, marketHoursDatabase, symbolPropertiesDataBase, algorithm);
+            algorithm.Securities.SetSecurityService(securityService);
+            algorithm.SetLiveMode(true);
+
+            var transactionHandler = new TestBrokerageTransactionHandler();
+            transactionHandler.Initialize(algorithm, brokerage, new TestResultHandler());
+
+            // Advance current time UTC so cash sync is performed
+            transactionHandler.TestCurrentTimeUtc = transactionHandler.TestCurrentTimeUtc.AddDays(2);
+
+            try
+            {
+                while (true)
+                {
+                    transactionHandler.ProcessSynchronousEvents();
+
+                    Assert.IsFalse(brokerage.IsConnected);
+
+                    Thread.Sleep(1000);
+                }
+            }
+            catch (Exception exception)
+            {
+                // expect exception from ProcessSynchronousEvents when max attempts reached
+                Assert.That(exception.Message.Contains("maximum number of attempts"));
+            }
         }
 
         internal class EmptyHistoryProvider : HistoryProviderBase

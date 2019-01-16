@@ -19,6 +19,7 @@ using QuantConnect.Data.Market;
 using QuantConnect.Interfaces;
 using QuantConnect.Logging;
 using QuantConnect.Orders;
+using QuantConnect.Orders.Fees;
 using QuantConnect.Securities;
 using QuantConnect.Util;
 using RestSharp;
@@ -56,7 +57,8 @@ namespace QuantConnect.Brokerages.Bitfinex
         /// <param name="restUrl">rest api url</param>
         /// <param name="apiKey">api key</param>
         /// <param name="apiSecret">api secret</param>
-        /// <param name="algorithm">the algorithm instance is required to retreive account type</param>
+        /// <param name="algorithm">the algorithm instance is required to retrieve account type</param>
+        /// <param name="priceProvider">The price provider for missing FX conversion rates</param>
         public BitfinexBrokerage(string wssUrl, string restUrl, string apiKey, string apiSecret, IAlgorithm algorithm, IPriceProvider priceProvider)
             : base(wssUrl, new WebSocketWrapper(), new RestClient(restUrl), apiKey, apiSecret, Market.Bitfinex, "Bitfinex")
         {
@@ -497,7 +499,10 @@ namespace QuantConnect.Brokerages.Bitfinex
                 Order outOrder;
                 if (CachedOrderIDs.TryRemove(order.Id, out outOrder))
                 {
-                    OnOrderEvent(new OrderEvent(order, DateTime.UtcNow, 0, "Bitfinex Order Event") { Status = OrderStatus.Canceled });
+                    OnOrderEvent(new OrderEvent(order,
+                        DateTime.UtcNow,
+                        OrderFee.Zero,
+                        "Bitfinex Order Event") { Status = OrderStatus.Canceled });
                 }
             }
             else
@@ -564,11 +569,12 @@ namespace QuantConnect.Brokerages.Bitfinex
                 var fillQuantity = decimal.Parse(entries[5], NumberStyles.Float, CultureInfo.InvariantCulture);
                 var direction = fillQuantity < 0 ? OrderDirection.Sell : OrderDirection.Buy;
                 var updTime = Time.UnixTimeStampToDateTime(double.Parse(entries[3], NumberStyles.Float, CultureInfo.InvariantCulture));
-                var orderFee = 0m;
+                var orderFee = OrderFee.Zero;
                 if (fillQuantity != 0)
                 {
                     var security = _securityProvider.GetSecurity(order.Symbol);
-                    orderFee = security.FeeModel.GetOrderFee(security, order);
+                    orderFee = security.FeeModel.GetOrderFee(
+                        new OrderFeeParameters(security, order));
                 }
 
                 OrderStatus status = fillQuantity == order.Quantity ? OrderStatus.Filled : OrderStatus.PartiallyFilled;

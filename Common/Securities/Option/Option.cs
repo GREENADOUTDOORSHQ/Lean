@@ -20,6 +20,8 @@ using QuantConnect.Orders.Fills;
 using QuantConnect.Orders.Slippage;
 using QuantConnect.Orders.OptionExercise;
 using Python.Runtime;
+using QuantConnect.Data.Market;
+using QuantConnect.Interfaces;
 using QuantConnect.Util;
 
 namespace QuantConnect.Securities.Option
@@ -28,7 +30,7 @@ namespace QuantConnect.Securities.Option
     /// Option Security Object Implementation for Option Assets
     /// </summary>
     /// <seealso cref="Security"/>
-    public class Option : Security, IDerivativeSecurity
+    public class Option : Security, IDerivativeSecurity, IOptionPrice
     {
         /// <summary>
         /// The default number of days required to settle an equity sale
@@ -71,7 +73,7 @@ namespace QuantConnect.Securities.Option
             SetDataNormalizationMode(DataNormalizationMode.Raw);
             OptionExerciseModel = new DefaultExerciseModel();
             PriceModel = new CurrentPriceOptionPriceModel();
-            Holdings = new OptionHolding(this);
+            Holdings = new OptionHolding(this, currencyConverter);
             _symbolProperties = symbolProperties;
             SetFilter(-1, 1, TimeSpan.Zero, TimeSpan.FromDays(35));
         }
@@ -107,7 +109,7 @@ namespace QuantConnect.Securities.Option
             SetDataNormalizationMode(DataNormalizationMode.Raw);
             OptionExerciseModel = new DefaultExerciseModel();
             PriceModel = new CurrentPriceOptionPriceModel();
-            Holdings = new OptionHolding(this);
+            Holdings = new OptionHolding(this, currencyConverter);
             _symbolProperties = symbolProperties;
             SetFilter(-1, 1, TimeSpan.Zero, TimeSpan.FromDays(35));
         }
@@ -246,6 +248,25 @@ namespace QuantConnect.Securities.Option
         public Security Underlying
         {
             get; set;
+        }
+
+        /// <summary>
+        /// Gets a reduced interface of the underlying security object.
+        /// </summary>
+        ISecurityPrice IOptionPrice.Underlying => Underlying;
+
+        /// <summary>
+        /// For this option security object, evaluates the specified option
+        /// contract to compute a theoretical price, IV and greeks
+        /// </summary>
+        /// <param name="slice">The current data slice. This can be used to access other information
+        /// available to the algorithm</param>
+        /// <param name="contract">The option contract to evaluate</param>
+        /// <returns>An instance of <see cref="OptionPriceModelResult"/> containing the theoretical
+        /// price of the specified option contract</returns>
+        public OptionPriceModelResult EvaluatePriceModel(Slice slice, OptionContract contract)
+        {
+            return PriceModel.Evaluate(this, slice, contract);
         }
 
         /// <summary>

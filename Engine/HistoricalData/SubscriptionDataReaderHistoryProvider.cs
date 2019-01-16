@@ -21,9 +21,11 @@ using NodaTime;
 using QuantConnect.Data;
 using QuantConnect.Data.Auxiliary;
 using QuantConnect.Data.Market;
+using QuantConnect.Data.UniverseSelection;
 using QuantConnect.Interfaces;
 using QuantConnect.Lean.Engine.DataFeeds;
 using QuantConnect.Lean.Engine.DataFeeds.Enumerators;
+using QuantConnect.Lean.Engine.DataFeeds.Enumerators.Factories;
 using QuantConnect.Securities;
 using QuantConnect.Util;
 using HistoryRequest = QuantConnect.Data.HistoryRequest;
@@ -64,6 +66,7 @@ namespace QuantConnect.Lean.Engine.HistoricalData
             foreach (var request in requests)
             {
                 var subscription = CreateSubscription(request, request.StartTimeUtc, request.EndTimeUtc);
+
                 subscription.MoveNext(); // prime pump
                 subscriptions.Add(subscription);
             }
@@ -97,20 +100,22 @@ namespace QuantConnect.Lean.Engine.HistoricalData
             var security = new Security(
                 request.ExchangeHours,
                 config,
-                new Cash(CashBook.AccountCurrency, 0, 1m),
-                SymbolProperties.GetDefault(CashBook.AccountCurrency),
+                new Cash(Currencies.NullCurrency, 0, 1m),
+                SymbolProperties.GetDefault(Currencies.NullCurrency),
                 ErrorCurrencyConverter.Instance
             );
+            var mapFileResolver = config.SecurityType == SecurityType.Equity
+                ? _mapFileProvider.Get(config.Market)
+                : MapFileResolver.Empty;
 
             var dataReader = new SubscriptionDataReader(config,
                 start,
                 end,
-                config.SecurityType == SecurityType.Equity ? _mapFileProvider.Get(config.Market) : MapFileResolver.Empty,
+                mapFileResolver,
                 _factorFileProvider,
                 Time.EachTradeableDay(request.ExchangeHours, start, end),
                 false,
-                _dataCacheProvider,
-                false
+                _dataCacheProvider
                 );
 
             dataReader.InvalidConfigurationDetected += (sender, args) => { OnInvalidConfigurationDetected(new InvalidConfigurationDetectedEventArgs(args.Message)); };
@@ -118,9 +123,16 @@ namespace QuantConnect.Lean.Engine.HistoricalData
             dataReader.DownloadFailed += (sender, args) => { OnDownloadFailed(new DownloadFailedEventArgs(args.Message, args.StackTrace)); };
             dataReader.ReaderErrorDetected += (sender, args) => { OnReaderErrorDetected(new ReaderErrorDetectedEventArgs(args.Message, args.StackTrace)); };
 
-            dataReader.Initialize();
+            var enumerator = CorporateEventEnumeratorFactory.CreateEnumerators(
+                config,
+                _factorFileProvider,
+                dataReader,
+                mapFileResolver,
+                false);
+            IEnumerator<BaseData> reader = new SynchronizingEnumerator(dataReader, enumerator);
 
-            IEnumerator<BaseData> reader = dataReader;
+            // has to be initialized after adding all the enumerators since it will execute a MoveNext
+            dataReader.Initialize();
 
             // optionally apply fill forward behavior
             if (request.FillForwardResolution.HasValue)
@@ -153,7 +165,8 @@ namespace QuantConnect.Lean.Engine.HistoricalData
 
             var timeZoneOffsetProvider = new TimeZoneOffsetProvider(security.Exchange.TimeZone, start, end);
             var subscriptionDataEnumerator = SubscriptionData.Enumerator(config, security, timeZoneOffsetProvider, reader);
-            return new Subscription(null, security, config, subscriptionDataEnumerator, timeZoneOffsetProvider, start, end, false);
+            var subscriptionRequest = new SubscriptionRequest(false, null, security, config, start, end);
+            return new Subscription(subscriptionRequest, subscriptionDataEnumerator, timeZoneOffsetProvider);
         }
 
         private class FilterEnumerator<T> : IEnumerator<T>

@@ -151,9 +151,6 @@
       <HintPath>..\packages\RestSharp.105.2.3\lib\net45\RestSharp.dll</HintPath>
       <Private>True</Private>
     </Reference>
-    <Reference Include="SuperSocket.ClientEngine, Version=0.10.0.0, Culture=neutral, PublicKeyToken=ee9af13f57f00acc, processorArchitecture=MSIL">
-      <HintPath>..\packages\SuperSocket.ClientEngine.Core.0.10.0\lib\net45\SuperSocket.ClientEngine.dll</HintPath>
-    </Reference>
     <Reference Include="System" />
     <Reference Include="System.ComponentModel.Composition" />
     <Reference Include="System.ComponentModel.DataAnnotations" />
@@ -168,15 +165,13 @@
     <Reference Include="websocket-sharp, Version=1.0.4.0, Culture=neutral, PublicKeyToken=5660b08a1845a91e, processorArchitecture=MSIL">
       <HintPath>..\packages\WebSocketSharpFork.1.0.4.0\lib\net35\websocket-sharp.dll</HintPath>
     </Reference>
-    <Reference Include="WebSocket4Net, Version=0.14.1.0, Culture=neutral, PublicKeyToken=eb4e154b696bf72a, processorArchitecture=MSIL">
-      <HintPath>..\packages\WebSocket4Net.0.14.1\lib\net45\WebSocket4Net.dll</HintPath>
-    </Reference>
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\Common\Properties\SharedAssemblyInfo.cs">
       <Link>Properties\SharedAssemblyInfo.cs</Link>
     </Compile>
-    <Compile Include="Alpaca\AlpacaApiBase.cs" />
+    <Compile Include="Alpaca\AlpacaBrokerage.Utility.cs" />
+    <Compile Include="Alpaca\AlpacaBrokerage.DataQueueHandler.cs" />
     <Compile Include="Alpaca\AlpacaBrokerage.cs" />
     <Compile Include="Alpaca\AlpacaBrokerageFactory.cs" />
     <Compile Include="Alpaca\Markets\Enums\AccountStatus.cs" />
@@ -265,8 +260,6 @@
     <Compile Include="Alpaca\Markets\RestClient.Polygon.cs" />
     <Compile Include="Alpaca\Markets\RestClientErrorException.cs" />
     <Compile Include="Alpaca\Markets\SockClient.cs" />
-    <Compile Include="Alpaca\PricingStreamSession.cs" />
-    <Compile Include="Alpaca\TransactionStreamSession.cs" />
     <Compile Include="Backtesting\BacktestingBrokerage.cs" />
     <Compile Include="Backtesting\BacktestingBrokerageFactory.cs" />
     <Compile Include="Backtesting\BasicOptionAssignmentSimulation.cs" />

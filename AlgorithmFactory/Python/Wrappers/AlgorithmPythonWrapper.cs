@@ -42,6 +42,8 @@ namespace QuantConnect.AlgorithmFactory.Python.Wrappers
     public class AlgorithmPythonWrapper : IAlgorithm
     {
         private readonly dynamic _algorithm = null;
+        private readonly dynamic _onData;
+        private readonly dynamic _onOrderEvent;
         private readonly IAlgorithm _baseAlgorithm;
         private readonly bool _isOnDataDefined = false;
 
@@ -82,8 +84,11 @@ namespace QuantConnect.AlgorithmFactory.Python.Wrappers
 
                             // determines whether OnData method was defined or inherits from QCAlgorithm
                             // If it is not, OnData from the base class will not be called
-                            var pythonType = (_algorithm as PyObject).GetAttr("OnData").GetPythonType();
+                            _onData = (_algorithm as PyObject).GetAttr("OnData");
+                            var pythonType = _onData.GetPythonType();
                             _isOnDataDefined = pythonType.Repr().Equals("<class \'method\'>");
+
+                            _onOrderEvent = (_algorithm as PyObject).GetAttr("OnOrderEvent");
                         }
                     }
 
@@ -383,6 +388,11 @@ namespace QuantConnect.AlgorithmFactory.Python.Wrappers
         public DateTime UtcTime => _baseAlgorithm.UtcTime;
 
         /// <summary>
+        /// Gets the account currency
+        /// </summary>
+        public string AccountCurrency => _baseAlgorithm.AccountCurrency;
+
+        /// <summary>
         /// Set a required SecurityType-symbol and resolution for algorithm
         /// </summary>
         /// <param name="securityType">SecurityType Enum: Equity, Commodity, FOREX or Future</param>
@@ -538,7 +548,7 @@ namespace QuantConnect.AlgorithmFactory.Python.Wrappers
             {
                 using (Py.GIL())
                 {
-                    _algorithm.OnData(SubscriptionManager.HasCustomData ? new PythonSlice(slice) : slice);
+                    _onData(SubscriptionManager.HasCustomData ? new PythonSlice(slice) : slice);
                 }
             }
         }
@@ -683,7 +693,7 @@ namespace QuantConnect.AlgorithmFactory.Python.Wrappers
         {
             using (Py.GIL())
             {
-                _algorithm.OnOrderEvent(newEvent);
+                _onOrderEvent(newEvent);
             }
         }
 
@@ -786,7 +796,7 @@ namespace QuantConnect.AlgorithmFactory.Python.Wrappers
         /// <param name="symbol">The cash symbol to set</param>
         /// <param name="startingCash">Decimal cash value of portfolio</param>
         /// <param name="conversionRate">The current conversion rate for the</param>
-        public void SetCash(string symbol, decimal startingCash, decimal conversionRate) => _baseAlgorithm.SetCash(symbol, startingCash, conversionRate);
+        public void SetCash(string symbol, decimal startingCash, decimal conversionRate = 0) => _baseAlgorithm.SetCash(symbol, startingCash, conversionRate);
 
         /// <summary>
         /// Set the DateTime Frontier: This is the master time and is
